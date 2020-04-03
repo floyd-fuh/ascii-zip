@@ -5,7 +5,8 @@ import zlib
 import struct
 import sys
 import argparse
-
+import os
+import random
 
 def binary(n, length, reverse=False):
     bits = ''.join(str(1 & (n >> i)) for i in range(length)[::-1])
@@ -88,7 +89,7 @@ class ASCIICompressor(object):
             chunk = data[:cursor]
             data = data[cursor:]
             self.block_count += 1
-            print 'compress', self.block_count, repr(chunk), huffman
+            # print 'compress', self.block_count, repr(chunk), huffman
             if previous_block_type == 2:
                 self._padding_block()
             (self._compress_chunk if block_type == 1 else self._compress_chunk_2)(
@@ -99,7 +100,7 @@ class ASCIICompressor(object):
             )
             previous_block_type = block_type
 
-        print 'size:', len(self.stream.data())
+        #print 'size:', len(self.stream.data())
 
         return self.stream.data(), uncompressed_data
 
@@ -173,7 +174,7 @@ class ASCIICompressor(object):
         return code_lengths, symbols
 
     def _generate_huffman_2(self, data):
-        print '_generate_huffman_2', repr(data)
+        # print '_generate_huffman_2', repr(data)
         valid_codes = filter(
             lambda c: (binary(c & 0b00111111, 6, True) + '10') in self.allowed,
             range(0b10000000, 0b11000000)
@@ -486,7 +487,7 @@ parser.add_argument('filename',
                     help='the file to compress')
 parser.add_argument('--mode',
                     type=str,
-                    choices=['raw', 'gzip', 'zlib', 'swf'],
+                    choices=['raw', 'brute', 'gzip', 'zlib', 'swf'],
                     help='format of the output data')
 parser.add_argument('--output',
                     type=str,
@@ -496,6 +497,7 @@ args = parser.parse_args()
 
 data = open(args.filename).read()
 compressor = ASCIICompressor(
+    #  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789<?>'
     'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
     # 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
     # map(chr, range(1, 128))
@@ -532,14 +534,44 @@ if args.mode == 'raw':
     compressed = compressor.compress(data)[0]
     print repr(compressed)
     output.write(compressed)
-
+elif args.mode == 'brute':
+    can_be_decompressed = False
+    data = ""
+    compressed = ""
+    while not can_be_decompressed:
+        while not "5#" in compressed:
+            data = os.urandom(110)
+            compressor = ASCIICompressor('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz5#')
+            try:
+                compressed, data = compressor.compress(data)
+            except Exception, e:
+                print "Caught error in compress... ", e
+                continue
+            print repr(compressed)
+        wrapped = wrap_zlib(compressed, data)
+        output.write(wrapped)
+        try:
+            can_be_decompressed = zlib.decompress(wrapped) == data
+        except Exception, e:
+            can_be_decompressed = False
+            data = ""
+            compressed = ""
+            print e
+        if can_be_decompressed:
+            print "decompresses to data:", zlib.decompress(wrapped) == data
+            print "data:", repr(data)
+            print "wrapped:", repr(wrapped)
+            print "compressed:", repr(compressed)
+    
 elif args.mode == 'gzip':
     output.write(wrap_gzip(compressor.compress(data)[0]))
 
 elif args.mode == 'zlib':
     compressed, data = compressor.compress(data)
     print repr(compressed)
-    output.write(wrap_zlib(compressed, data))
+    wrapped = wrap_zlib(compressed, data)
+    output.write(wrapped)
+    print "decompresses to data:", zlib.decompress(wrapped) == data 
 
 elif args.mode == 'swf':
     body = data[8:]
